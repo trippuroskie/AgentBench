@@ -228,6 +228,57 @@ export interface LangfuseConfig {
   secretKey: string;
 }
 
+// ── LLM Service (shared interface for Ollama + OpenRouter) ────
+
+export interface LLMChatResponse {
+  message: ChatMessage;
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+  model: string;
+}
+
+export interface LLMServiceOptions {
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  repeatPenalty?: number;
+  seed?: number;
+  timeoutMs?: number;
+}
+
+export interface LLMService {
+  chatCompletion(
+    model: string,
+    messages: ChatMessage[],
+    tools?: ToolDefinition[],
+    options?: LLMServiceOptions,
+  ): Promise<LLMChatResponse>;
+}
+
+// ── Model Parameters ─────────────────────────────────────────
+
+export interface ModelParams {
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  repeatPenalty?: number;
+  seed?: number;
+}
+
+// ── Custom Tool Types ────────────────────────────────────────
+
+export type CustomToolType = 'template' | 'http' | 'javascript';
+
+export interface HttpToolConfig {
+  method: 'GET' | 'POST';
+  urlTemplate: string;
+  headers?: Record<string, string>;
+  bodyTemplate?: string;
+}
+
 // ── Settings ──────────────────────────────────────────────────
 
 export interface AppSettings {
@@ -237,4 +288,5 @@ export interface AppSettings {
   defaultMaxSteps: number;
   judgeProvider: 'ollama' | 'openrouter';
   judgeModel: string;
+  concurrencyLimit: number;
 }

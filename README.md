@@ -6,21 +6,38 @@ Test how well different LLMs handle multi-step agent tasks — calling tools, na
 
 ## Features
 
-- **Agent Harness** — TypeScript tool-calling loop: call model, parse tool_calls, execute mock tools, feed results back, repeat
+### Core
+- **Agent Harness** — TypeScript tool-calling loop: call model, parse tool_calls, execute tools, feed results back, repeat
+- **Multi-Provider LLM Support** — Run benchmarks against local Ollama models and cloud models via OpenRouter (Claude, GPT-4, Gemini, etc.) in the same benchmark
+- **Parallel Benchmark Execution** — Configurable concurrency limit (1-10) to run multiple benchmark items simultaneously
+- **Model Parameter Tuning** — Configure temperature, top_p, top_k, repeat penalty, and seed per benchmark run
+
+### Tools
 - **5 Built-in Tools** — Calculator, search, weather, grid move, grid look
-- **Custom Tools** — Create your own tools from the UI with configurable parameters and response templates
+- **Custom Template Tools** — Static response templates with `{{param}}` substitution
+- **HTTP API Tools** — Make real HTTP requests to external APIs (e.g., wttr.in weather, DuckDuckGo search) with configurable method, URL, headers, and body templates
+- **JavaScript Tools** — Write custom JS function bodies that execute in the browser
+- **Example Tool Prefills** — One-click setup for real weather API and web search tools
+
+### Tasks & Scoring
 - **7 Built-in Tasks** — Multi-step math, fact lookup, weather comparison, unit conversion, grid navigation (easy/medium)
-- **Custom Tasks** — Create deterministic or open-ended tasks from the UI with configurable prompts, tools, scoring, and expected answers
-- **Milestone-Based Scoring** — Partial credit scoring that checks tool usage, intermediate results, and answer proximity (not just binary pass/fail)
-- **Tool Efficiency Metric** — Measures how efficiently agents use tools (optimal vs actual tool calls)
-- **Live Benchmark Monitor** — Full-screen dark-themed dashboard with real-time step feed, token counters, queue progress, ETA, and live grid visualization
-- **Model Pulling** — Pull models directly from the Ollama registry via the UI with real-time progress
-- **Scoring Methods** — Deterministic (exact match, contains check), trajectory efficiency (grid nav), LLM-as-judge (optional)
-- **Dashboard & Leaderboard** — Charts, model rankings, sortable results with filters
-- **Side-by-Side Compare** — Radar chart + metrics table for up to 4 models on the same task
+- **Custom Tasks** — Create deterministic or open-ended tasks with configurable prompts, tools, scoring, and expected answers
+- **Milestone-Based Scoring** — Partial credit scoring that checks tool usage, intermediate results, and answer proximity
+- **Scoring Methods** — Exact match, contains check, trajectory efficiency (grid nav), LLM-as-judge (optional)
+
+### Analysis & Visualization
+- **Statistical Analysis** — Mean, std dev, min/max, 95% confidence intervals across multiple iterations
+- **Dashboard & Leaderboard** — Charts, model rankings with +/- std dev, sortable results with filters
+- **Side-by-Side Compare** — Radar chart + metrics table (with statistical aggregation) for up to 4 models
+- **Statistical Summary** — Auto-generated stats tables in Results view for groups with multiple runs
+- **Live Benchmark Monitor** — Full-screen dashboard with real-time step feed, token counters, queue progress, and live grid visualization
 - **Grid Navigation Visualizer** — Animated playback of agent pathfinding with optimal path overlay
 - **Agent Trace Viewer** — Step-by-step execution log with tool calls and results
+
+### Infrastructure
 - **SQLite In-Browser** — Persistent storage via sql.js + IndexedDB
+- **Model Pulling** — Pull Ollama models directly from the UI with progress tracking
+- **OpenRouter Cloud Models** — Add cloud models with per-token pricing for cost tracking
 - **Langfuse Tracing** — Optional self-hosted tracing via REST API
 - **LLM-as-Judge** — Optional scoring via Ollama (local) or OpenRouter (cloud)
 
@@ -31,6 +48,7 @@ Test how well different LLMs handle multi-step agent tasks — calling tools, na
 - Recharts for visualization
 - sql.js for in-browser SQLite
 - Ollama for local model inference (native `/api/chat` endpoint)
+- OpenRouter for cloud model inference (OpenAI-compatible API)
 
 ## Getting Started
 
@@ -86,9 +104,11 @@ Self-host [Langfuse](https://langfuse.com/) and configure in **Settings**:
 - Host URL, Public Key, Secret Key
 - Each benchmark run creates traces with per-step spans and generations
 
-### OpenRouter (LLM-as-Judge)
+### OpenRouter (Cloud Models + LLM-as-Judge)
 
-Add your [OpenRouter](https://openrouter.ai/) API key in **Settings** to use cloud frontier models as judges for open-ended tasks.
+Add your [OpenRouter](https://openrouter.ai/) API key in **Settings** to:
+- **Benchmark cloud models** — Add models like `anthropic/claude-sonnet-4-20250514` or `openai/gpt-4o` via the Models page and run them alongside local Ollama models
+- **LLM-as-Judge** — Use cloud frontier models as judges for open-ended task scoring
 
 ## Configuration
 
@@ -110,12 +130,12 @@ cp .env.example .env.local
 
 ```
 src/
-├── agent/           # Core agent loop, tools, scoring
+├── agent/           # Core agent loop, tools (template/HTTP/JS), scoring
 ├── components/      # React UI components
 ├── services/        # Ollama, OpenRouter, Langfuse, SQLite clients
 ├── tasks/           # Built-in task definitions
-├── utils/           # Pathfinding, metrics
-├── types.ts         # All TypeScript interfaces
+├── utils/           # Pathfinding, concurrency, statistics
+├── types.ts         # All TypeScript interfaces (LLMService, ModelParams, etc.)
 └── constants.ts     # Model configs, metric definitions
 ```
 

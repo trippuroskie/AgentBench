@@ -121,16 +121,30 @@ export default function Settings({ settings, onUpdateSettings, ollamaStatus }: S
 
       {/* Agent Defaults */}
       <Section title="Agent Defaults" icon="fa-robot" iconColor="text-amber-500">
-        <div>
-          <label className="text-xs font-medium text-slate-500 block mb-1">Default Max Steps</label>
-          <input
-            type="number"
-            value={localSettings.defaultMaxSteps}
-            onChange={(e) => update({ defaultMaxSteps: parseInt(e.target.value) || 15 })}
-            className="w-32 px-3 py-2 rounded-lg border border-slate-200 text-sm"
-            min={1}
-            max={100}
-          />
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Default Max Steps</label>
+            <input
+              type="number"
+              value={localSettings.defaultMaxSteps}
+              onChange={(e) => update({ defaultMaxSteps: parseInt(e.target.value) || 15 })}
+              className="w-32 px-3 py-2 rounded-lg border border-slate-200 text-sm"
+              min={1}
+              max={100}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Concurrency Limit</label>
+            <input
+              type="number"
+              value={localSettings.concurrencyLimit}
+              onChange={(e) => update({ concurrencyLimit: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
+              className="w-32 px-3 py-2 rounded-lg border border-slate-200 text-sm"
+              min={1}
+              max={10}
+            />
+            <p className="text-xs text-slate-400 mt-1">Max parallel benchmark runs (1-10)</p>
+          </div>
         </div>
       </Section>
 

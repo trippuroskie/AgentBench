@@ -1,4 +1,6 @@
-export class OpenRouterService {
+import type { ChatMessage, ToolDefinition, LLMService, LLMChatResponse, LLMServiceOptions } from '../types';
+
+export class OpenRouterService implements LLMService {
   private apiKey: string;
   private baseUrl = 'https://openrouter.ai/api/v1';
 
@@ -8,6 +10,102 @@ export class OpenRouterService {
 
   isConfigured(): boolean {
     return !!this.apiKey;
+  }
+
+  updateApiKey(apiKey: string): void {
+    this.apiKey = apiKey;
+  }
+
+  async chatCompletion(
+    model: string,
+    messages: ChatMessage[],
+    tools?: ToolDefinition[],
+    options?: LLMServiceOptions,
+  ): Promise<LLMChatResponse> {
+    const timeoutMs = options?.timeoutMs ?? 120_000;
+
+    // OpenRouter uses OpenAI-compatible format — messages can pass through mostly as-is
+    const body: any = {
+      model,
+      messages: messages.map((m) => {
+        const msg: any = { role: m.role, content: m.content ?? '' };
+        if (m.tool_calls?.length) {
+          msg.tool_calls = m.tool_calls.map((tc) => ({
+            id: tc.id,
+            type: 'function',
+            function: {
+              name: tc.function.name,
+              arguments: tc.function.arguments,
+            },
+          }));
+        }
+        if (m.tool_call_id) {
+          msg.tool_call_id = m.tool_call_id;
+        }
+        return msg;
+      }),
+    };
+
+    if (tools && tools.length > 0) {
+      body.tools = tools;
+    }
+    if (options?.temperature != null) body.temperature = options.temperature;
+    if (options?.topP != null) body.top_p = options.topP;
+    if (options?.seed != null) body.seed = options.seed;
+
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': window.location.origin,
+        'X-Title': 'AgentBench',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`OpenRouter error ${response.status}: ${err}`);
+    }
+
+    const data = await response.json();
+    const choice = data.choices?.[0];
+    if (!choice?.message) {
+      throw new Error('No message in OpenRouter response');
+    }
+
+    const msg = choice.message;
+    const message: ChatMessage = {
+      role: 'assistant',
+      content: msg.content ?? null,
+    };
+
+    if (msg.tool_calls?.length) {
+      message.tool_calls = msg.tool_calls.map((tc: any) => ({
+        id: tc.id || crypto.randomUUID(),
+        type: 'function',
+        function: {
+          name: tc.function.name,
+          arguments: typeof tc.function.arguments === 'string'
+            ? tc.function.arguments
+            : JSON.stringify(tc.function.arguments),
+        },
+      }));
+    }
+
+    const usage = data.usage ?? {};
+
+    return {
+      message,
+      usage: {
+        prompt_tokens: usage.prompt_tokens ?? 0,
+        completion_tokens: usage.completion_tokens ?? 0,
+        total_tokens: usage.total_tokens ?? (usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0),
+      },
+      model: data.model || model,
+    };
   }
 
   async judgeResponse(params: {

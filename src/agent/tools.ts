@@ -1,4 +1,4 @@
-import type { ToolDefinition, ToolExecutor, RegisteredTool, TaskContext } from '../types';
+import type { ToolDefinition, ToolExecutor, RegisteredTool, TaskContext, HttpToolConfig } from '../types';
 
 // ── Tool Registry ─────────────────────────────────────────────
 
@@ -26,7 +26,7 @@ export function getToolDefinitions(names: string[]): ToolDefinition[] {
   });
 }
 
-export function executeTool(name: string, argsJson: string, context?: TaskContext): { result: string; durationMs: number } {
+export async function executeTool(name: string, argsJson: string, context?: TaskContext): Promise<{ result: string; durationMs: number }> {
   const tool = REGISTRY[name];
   if (!tool) return { result: JSON.stringify({ error: `Unknown tool: ${name}` }), durationMs: 0 };
 
@@ -39,7 +39,7 @@ export function executeTool(name: string, argsJson: string, context?: TaskContex
 
   const start = performance.now();
   try {
-    const result = tool.execute(args, context);
+    const result = await tool.execute(args, context);
     const durationMs = performance.now() - start;
     return { result: typeof result === 'string' ? result : JSON.stringify(result), durationMs };
   } catch (e: any) {
@@ -76,6 +76,70 @@ export function registerCustomTool(
       response = response.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), String(val));
     }
     return response;
+  });
+}
+
+/** Register an HTTP-backed tool that makes real API calls */
+export function registerHttpTool(
+  name: string,
+  description: string,
+  parameters: Record<string, { type: string; description?: string }>,
+  required: string[],
+  httpConfig: HttpToolConfig,
+): void {
+  register(name, description, parameters, required, async (args) => {
+    // Substitute {{param}} in URL template
+    let url = httpConfig.urlTemplate;
+    for (const [key, val] of Object.entries(args)) {
+      url = url.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), encodeURIComponent(String(val)));
+    }
+
+    const fetchOptions: RequestInit = { method: httpConfig.method };
+    if (httpConfig.headers) {
+      fetchOptions.headers = { ...httpConfig.headers };
+    }
+    if (httpConfig.method === 'POST' && httpConfig.bodyTemplate) {
+      let body = httpConfig.bodyTemplate;
+      for (const [key, val] of Object.entries(args)) {
+        body = body.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), String(val));
+      }
+      fetchOptions.body = body;
+      fetchOptions.headers = { ...(fetchOptions.headers as Record<string, string>), 'Content-Type': 'application/json' };
+    }
+
+    try {
+      const response = await fetch(url, {
+        ...fetchOptions,
+        signal: AbortSignal.timeout(10_000),
+      });
+      const text = await response.text();
+      // Truncate very large responses to avoid blowing up context
+      if (text.length > 4000) {
+        return text.slice(0, 4000) + '\n... (truncated)';
+      }
+      return text;
+    } catch (e: any) {
+      return JSON.stringify({ error: `HTTP request failed: ${e.message}` });
+    }
+  });
+}
+
+/** Register a JavaScript-backed tool that runs custom code */
+export function registerJsTool(
+  name: string,
+  description: string,
+  parameters: Record<string, { type: string; description?: string }>,
+  required: string[],
+  functionBody: string,
+): void {
+  register(name, description, parameters, required, (args, context) => {
+    try {
+      const fn = new Function('args', 'context', functionBody);
+      const result = fn(args, context);
+      return typeof result === 'string' ? result : JSON.stringify(result);
+    } catch (e: any) {
+      return JSON.stringify({ error: `JS execution error: ${e.message}` });
+    }
   });
 }
 

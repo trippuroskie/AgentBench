@@ -1,20 +1,20 @@
-import type { ChatMessage, AgentStep, BenchmarkRun, RunMetrics, TaskDefinition, TaskContext } from '../types';
-import { OllamaService } from '../services/ollama';
+import type { ChatMessage, AgentStep, BenchmarkRun, RunMetrics, TaskDefinition, TaskContext, LLMService, ModelParams } from '../types';
 import { getToolDefinitions, executeTool } from './tools';
 import { scoreRun } from './scorer';
 
 export interface AgentRunOptions {
   model: string;
   task: TaskDefinition;
-  ollamaService: OllamaService;
+  llmService: LLMService;
   onStep?: (step: AgentStep, context?: TaskContext) => void;
   abortSignal?: AbortSignal;
   judgeConfig?: { model: string; ollamaBaseUrl: string };
   modelConfig?: { inputPrice: number; outputPrice: number };
+  modelParams?: ModelParams;
 }
 
 export async function runAgent(options: AgentRunOptions): Promise<BenchmarkRun> {
-  const { model, task, ollamaService, onStep, abortSignal, judgeConfig, modelConfig } = options;
+  const { model, task, llmService, onStep, abortSignal, judgeConfig, modelConfig, modelParams } = options;
   const runId = crypto.randomUUID();
   const runStart = performance.now();
 
@@ -65,7 +65,14 @@ export async function runAgent(options: AgentRunOptions): Promise<BenchmarkRun> 
       const stepStart = performance.now();
 
       // Call LLM
-      const response = await ollamaService.chatCompletion(model, messages, toolDefs);
+      const response = await llmService.chatCompletion(model, messages, toolDefs, {
+        temperature: modelParams?.temperature,
+        topP: modelParams?.topP,
+        topK: modelParams?.topK,
+        repeatPenalty: modelParams?.repeatPenalty,
+        seed: modelParams?.seed,
+        timeoutMs: TIMEOUT_MS,
+      });
 
       const assistantMsg = response.message;
       messages.push(assistantMsg);
@@ -110,7 +117,7 @@ export async function runAgent(options: AgentRunOptions): Promise<BenchmarkRun> 
 
         for (const tc of assistantMsg.tool_calls!) {
           const toolStart = performance.now();
-          const { result, durationMs } = executeTool(tc.function.name, tc.function.arguments, context);
+          const { result, durationMs } = await executeTool(tc.function.name, tc.function.arguments, context);
 
           // Add tool result message
           messages.push({

@@ -16,6 +16,9 @@ export default function ModelManager({ models, ollamaStatus, onRefresh, onAddMod
   const [showAdd, setShowAdd] = useState(false);
   const [newId, setNewId] = useState('');
   const [newName, setNewName] = useState('');
+  const [newProvider, setNewProvider] = useState<'ollama' | 'openrouter'>('ollama');
+  const [newInputPrice, setNewInputPrice] = useState('');
+  const [newOutputPrice, setNewOutputPrice] = useState('');
 
   // Pull state
   const [showPull, setShowPull] = useState(false);
@@ -37,15 +40,19 @@ export default function ModelManager({ models, ollamaStatus, onRefresh, onAddMod
 
     onAddModel({
       id: newId,
-      name: newName,
-      provider: 'ollama',
+      name: newName || newId,
+      provider: newProvider,
+      family: newProvider === 'openrouter' ? newId.split('/')[0] : undefined,
       color: MODEL_COLORS[models.length % MODEL_COLORS.length],
-      inputPrice: 0,
-      outputPrice: 0,
+      inputPrice: newProvider === 'openrouter' ? parseFloat(newInputPrice) || 0 : 0,
+      outputPrice: newProvider === 'openrouter' ? parseFloat(newOutputPrice) || 0 : 0,
     });
 
     setNewId('');
     setNewName('');
+    setNewProvider('ollama');
+    setNewInputPrice('');
+    setNewOutputPrice('');
     setShowAdd(false);
   };
 
@@ -200,15 +207,48 @@ export default function ModelManager({ models, ollamaStatus, onRefresh, onAddMod
             <i className="fas fa-plus-circle text-violet-500 mr-2"></i>
             Add Custom Model
           </h3>
-          <p className="text-xs text-slate-400 mb-4">Add a model that's already pulled locally but wasn't auto-detected.</p>
+
+          {/* Provider Selector */}
+          <div className="flex gap-2 mb-4">
+            <button
+              type="button"
+              onClick={() => setNewProvider('ollama')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                newProvider === 'ollama'
+                  ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                  : 'bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              <i className="fas fa-server mr-2"></i>Ollama (Local)
+            </button>
+            <button
+              type="button"
+              onClick={() => setNewProvider('openrouter')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                newProvider === 'openrouter'
+                  ? 'bg-sky-100 text-sky-700 border border-sky-300'
+                  : 'bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              <i className="fas fa-cloud mr-2"></i>OpenRouter (Cloud)
+            </button>
+          </div>
+
+          <p className="text-xs text-slate-400 mb-4">
+            {newProvider === 'ollama'
+              ? 'Add a model that\'s already pulled locally but wasn\'t auto-detected.'
+              : 'Add a cloud model via OpenRouter. Requires API key in Settings.'}
+          </p>
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="text-xs font-medium text-slate-500 block mb-1">Model ID (Ollama name)</label>
+              <label className="text-xs font-medium text-slate-500 block mb-1">
+                {newProvider === 'openrouter' ? 'Model ID (e.g. anthropic/claude-sonnet-4-20250514)' : 'Model ID (Ollama name)'}
+              </label>
               <input
                 type="text"
                 value={newId}
                 onChange={(e) => setNewId(e.target.value)}
-                placeholder="e.g. gemma4:latest"
+                placeholder={newProvider === 'openrouter' ? 'anthropic/claude-sonnet-4-20250514' : 'gemma4:latest'}
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-mono"
               />
             </div>
@@ -218,11 +258,37 @@ export default function ModelManager({ models, ollamaStatus, onRefresh, onAddMod
                 type="text"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="e.g. Gemma 4 27B"
+                placeholder={newProvider === 'openrouter' ? 'Claude Sonnet 4' : 'Gemma 4 27B'}
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
               />
             </div>
           </div>
+          {newProvider === 'openrouter' && (
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="text-xs font-medium text-slate-500 block mb-1">Input Price ($/token)</label>
+                <input
+                  type="number"
+                  step="0.000001"
+                  value={newInputPrice}
+                  onChange={(e) => setNewInputPrice(e.target.value)}
+                  placeholder="0.000003"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 block mb-1">Output Price ($/token)</label>
+                <input
+                  type="number"
+                  step="0.000001"
+                  value={newOutputPrice}
+                  onChange={(e) => setNewOutputPrice(e.target.value)}
+                  placeholder="0.000015"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-mono"
+                />
+              </div>
+            </div>
+          )}
           <div className="flex gap-2">
             <button type="submit" className="px-4 py-2 bg-violet-500 text-white rounded-lg text-sm font-medium hover:bg-violet-600 transition-colors">
               Add Model
@@ -248,7 +314,14 @@ export default function ModelManager({ models, ollamaStatus, onRefresh, onAddMod
                 {model.name.charAt(0)}
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-slate-800 truncate">{model.name}</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-slate-800 truncate">{model.name}</h3>
+                  {model.provider === 'openrouter' && (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-100 text-sky-700">
+                      <i className="fas fa-cloud mr-0.5"></i>CLOUD
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-3 mt-0.5">
                   <span className="text-xs text-slate-400 font-mono">{model.id}</span>
                   {model.paramsB && <span className="text-xs text-slate-400">{model.paramsB}B params</span>}

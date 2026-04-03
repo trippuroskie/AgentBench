@@ -321,6 +321,7 @@ function saveRunMetrics(runId: string, metrics: RunMetrics): void {
     ['costEstimateUsd', metrics.costEstimateUsd],
   ];
 
+  if (metrics.toolEfficiency != null) entries.push(['toolEfficiency', metrics.toolEfficiency]);
   if (metrics.trajectoryEfficiency != null) entries.push(['trajectoryEfficiency', metrics.trajectoryEfficiency]);
   if (metrics.judgeScore != null) entries.push(['judgeScore', metrics.judgeScore]);
 
@@ -450,6 +451,51 @@ export function getLeaderboard(metricName: string, taskId?: string): { modelId: 
     avgValue: r[1] as number,
     runCount: r[2] as number,
   }));
+}
+
+export function getLeaderboardWithStats(
+  metricName: string,
+  taskId?: string,
+): { modelId: string; mean: number; stdDev: number; min: number; max: number; n: number }[] {
+  let query = `
+    SELECT r.model_id,
+      AVG(rm.metric_value) as mean_val,
+      MIN(rm.metric_value) as min_val,
+      MAX(rm.metric_value) as max_val,
+      COUNT(*) as n,
+      SUM(rm.metric_value * rm.metric_value) as sum_sq,
+      SUM(rm.metric_value) as sum_val
+    FROM run_metrics rm
+    JOIN runs r ON r.id = rm.run_id
+    WHERE rm.metric_name = ? AND r.status = 'completed'
+  `;
+  const params: any[] = [metricName];
+
+  if (taskId) { query += ' AND r.task_id = ?'; params.push(taskId); }
+  query += ' GROUP BY r.model_id ORDER BY mean_val DESC';
+
+  const d = getDb();
+  if (!d) return [];
+  const rows = d.exec(query, params);
+  if (!rows.length) return [];
+
+  return rows[0].values.map((r) => {
+    const n = r[4] as number;
+    const sumSq = r[5] as number;
+    const sumVal = r[6] as number;
+    const mean = r[1] as number;
+    // Sample standard deviation
+    const stdDev = n > 1 ? Math.sqrt((sumSq - (sumVal * sumVal) / n) / (n - 1)) : 0;
+
+    return {
+      modelId: r[0] as string,
+      mean,
+      stdDev,
+      min: r[2] as number,
+      max: r[3] as number,
+      n,
+    };
+  });
 }
 
 // ── Utilities ─────────────────────────────────────────────────

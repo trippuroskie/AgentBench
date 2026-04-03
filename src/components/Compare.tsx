@@ -5,6 +5,7 @@ import { CHART_COLORS, METRIC_CONFIGS } from '../constants';
 import { getRunSteps } from '../services/database';
 import AgentTraceView from './AgentTraceView';
 import GridVisualization from './GridVisualization';
+import { computeStats } from '../utils/stats';
 
 interface CompareProps {
   runs: BenchmarkRun[];
@@ -33,7 +34,7 @@ export default function Compare({ runs, models, tasks }: CompareProps) {
     return completedRuns.filter((r) => r.taskId === selectedTask);
   }, [completedRuns, selectedTask]);
 
-  // Group by model, take best run per model
+  // Group by model, take best run per model; also collect all runs for stats
   const modelBestRuns = useMemo(() => {
     const byModel = new Map<string, BenchmarkRun>();
     for (const run of taskRuns) {
@@ -41,6 +42,16 @@ export default function Compare({ runs, models, tasks }: CompareProps) {
       if (!existing || (run.metrics?.taskSuccess ?? 0) > (existing.metrics?.taskSuccess ?? 0)) {
         byModel.set(run.modelId, run);
       }
+    }
+    return byModel;
+  }, [taskRuns]);
+
+  const modelAllRuns = useMemo(() => {
+    const byModel = new Map<string, BenchmarkRun[]>();
+    for (const run of taskRuns) {
+      const arr = byModel.get(run.modelId) || [];
+      arr.push(run);
+      byModel.set(run.modelId, arr);
     }
     return byModel;
   }, [taskRuns]);
@@ -165,7 +176,8 @@ export default function Compare({ runs, models, tasks }: CompareProps) {
             <>
               {/* Radar Chart */}
               <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
-                <h3 className="text-sm font-bold text-slate-600 mb-4">Performance Radar</h3>
+                <h3 className="text-sm font-bold text-slate-600 mb-2">Performance Radar</h3>
+                <p className="text-[10px] text-slate-400 mb-2">Values are normalized to 0-100 scale. When multiple runs exist, means and std devs are shown in the table below.</p>
                 <ResponsiveContainer width="100%" height={300}>
                   <RadarChart data={radarData}>
                     <PolarGrid stroke="#e2e8f0" />
@@ -222,9 +234,15 @@ export default function Compare({ runs, models, tasks }: CompareProps) {
                           {comparedRuns.map((run, i) => {
                             const val = (run.metrics as any)?.[key] ?? 0;
                             const isBest = val === best && values.filter((v) => v === best).length === 1;
+                            const allRuns = modelAllRuns.get(run.modelId) || [];
+                            const allVals = allRuns.map((r) => (r.metrics as any)?.[key] ?? 0).filter((v: number) => v != null);
+                            const stats = allVals.length > 1 ? computeStats(allVals) : null;
                             return (
                               <td key={run.id} className={`p-4 font-mono text-xs ${isBest ? 'font-bold text-emerald-600' : 'text-slate-500'}`}>
-                                {config.format(val)}
+                                {stats ? config.format(stats.mean) : config.format(val)}
+                                {stats && stats.stdDev > 0 && (
+                                  <span className="text-[10px] text-slate-400 font-normal ml-1">+/-{config.format(stats.stdDev)}</span>
+                                )}
                                 {isBest && <i className="fas fa-crown text-amber-500 ml-1 text-[10px]"></i>}
                               </td>
                             );

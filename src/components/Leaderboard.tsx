@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import type { BenchmarkRun, ModelConfig, TaskDefinition } from '../types';
 import { METRIC_CONFIGS, CHART_COLORS } from '../constants';
 import type { MetricConfig } from '../constants';
+import { computeStats } from '../utils/stats';
 
 interface LeaderboardProps {
   runs: BenchmarkRun[];
@@ -36,30 +37,37 @@ export default function Leaderboard({ runs, models, tasks }: LeaderboardProps) {
   }, [completedRuns, filterTask]);
 
   const leaderboardData = useMemo(() => {
-    const byModel = new Map<string, { total: Record<string, number>; count: Record<string, number> }>();
+    const metricKeys = ['taskSuccess', 'tokensPerSecond', 'wallClockMs', 'toolCallsCount', 'toolEfficiency', 'trajectoryEfficiency', 'costEstimateUsd'] as const;
+    const byModel = new Map<string, { values: Record<string, number[]> }>();
 
     for (const run of filteredRuns) {
       const m = run.metrics!;
       let entry = byModel.get(run.modelId);
       if (!entry) {
-        entry = { total: {}, count: {} };
+        entry = { values: {} };
         byModel.set(run.modelId, entry);
       }
 
-      for (const key of ['taskSuccess', 'tokensPerSecond', 'wallClockMs', 'toolCallsCount', 'toolEfficiency', 'trajectoryEfficiency', 'costEstimateUsd'] as const) {
+      for (const key of metricKeys) {
         const val = m[key];
         if (val != null) {
-          entry.total[key] = (entry.total[key] || 0) + val;
-          entry.count[key] = (entry.count[key] || 0) + 1;
+          if (!entry.values[key]) entry.values[key] = [];
+          entry.values[key].push(val);
         }
       }
     }
 
-    return Array.from(byModel.entries()).map(([modelId, { total, count }]) => {
+    return Array.from(byModel.entries()).map(([modelId, { values }]) => {
       const model = models.find((m) => m.id === modelId);
       const avgs: Record<string, number> = {};
-      for (const key of Object.keys(total)) {
-        avgs[key] = total[key] / count[key];
+      const stdDevs: Record<string, number> = {};
+      let runCount = 0;
+
+      for (const key of Object.keys(values)) {
+        const stats = computeStats(values[key]);
+        avgs[key] = stats.mean;
+        stdDevs[key] = stats.stdDev;
+        if (key === 'taskSuccess') runCount = stats.n;
       }
 
       return {
@@ -67,7 +75,8 @@ export default function Leaderboard({ runs, models, tasks }: LeaderboardProps) {
         name: model?.name || modelId.split(':')[0],
         color: model?.color || 'bg-slate-100 text-slate-600',
         paramsB: model?.paramsB,
-        runs: count.taskSuccess || 0,
+        runs: runCount,
+        stdDevs,
         ...avgs,
       };
     });
@@ -176,9 +185,26 @@ export default function Leaderboard({ runs, models, tasks }: LeaderboardProps) {
                       {entry.paramsB && <span className="text-[10px] text-slate-400 ml-2">{entry.paramsB}B</span>}
                     </td>
                     <td className="p-4 text-slate-500 font-mono text-xs">{entry.runs}</td>
-                    <td className="p-4 font-bold text-slate-700">{METRIC_CONFIGS.taskSuccess.format((entry as any).taskSuccess || 0)}</td>
-                    <td className="p-4 text-slate-500 font-mono text-xs">{METRIC_CONFIGS.tokensPerSecond.format((entry as any).tokensPerSecond || 0)}</td>
-                    <td className="p-4 text-slate-500 font-mono text-xs">{METRIC_CONFIGS.wallClockMs.format((entry as any).wallClockMs || 0)}</td>
+                    <td className="p-4 font-bold text-slate-700">
+                      {METRIC_CONFIGS.taskSuccess.format((entry as any).taskSuccess || 0)}
+                      {entry.runs > 1 && entry.stdDevs.taskSuccess > 0 && (
+                        <span className="text-[10px] text-slate-400 font-normal ml-1">
+                          +/-{Math.round(entry.stdDevs.taskSuccess * 100)}%
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-4 text-slate-500 font-mono text-xs">
+                      {METRIC_CONFIGS.tokensPerSecond.format((entry as any).tokensPerSecond || 0)}
+                      {entry.runs > 1 && entry.stdDevs.tokensPerSecond > 0 && (
+                        <span className="text-[10px] text-slate-400 ml-1">+/-{entry.stdDevs.tokensPerSecond.toFixed(1)}</span>
+                      )}
+                    </td>
+                    <td className="p-4 text-slate-500 font-mono text-xs">
+                      {METRIC_CONFIGS.wallClockMs.format((entry as any).wallClockMs || 0)}
+                      {entry.runs > 1 && entry.stdDevs.wallClockMs > 0 && (
+                        <span className="text-[10px] text-slate-400 ml-1">+/-{METRIC_CONFIGS.wallClockMs.format(entry.stdDevs.wallClockMs)}</span>
+                      )}
+                    </td>
                     <td className="p-4 text-slate-500 font-mono text-xs">{Math.round((entry as any).toolCallsCount || 0)}</td>
                   </tr>
                 ))}

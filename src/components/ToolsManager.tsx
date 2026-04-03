@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import type { ToolDefinition } from '../types';
-import { getAllToolDefinitions, hasTool, registerCustomTool } from '../agent/tools';
+import type { ToolDefinition, CustomToolType, HttpToolConfig } from '../types';
+import { getAllToolDefinitions, hasTool, registerCustomTool, registerHttpTool, registerJsTool } from '../agent/tools';
 
 const TOOL_ICONS: Record<string, string> = {
   calculator: 'fa-calculator',
@@ -12,6 +12,25 @@ const TOOL_ICONS: Record<string, string> = {
 
 const BUILTIN_TOOLS = new Set(['calculator', 'search', 'weather', 'move', 'look']);
 
+const EXAMPLE_TOOLS = {
+  weather_api: {
+    name: 'weather_api',
+    description: 'Get real weather data for any city using wttr.in API',
+    params: [{ name: 'city', type: 'string', description: 'City name', required: true }],
+    toolType: 'http' as CustomToolType,
+    httpMethod: 'GET' as const,
+    urlTemplate: 'https://wttr.in/{{city}}?format=j1',
+  },
+  duckduckgo: {
+    name: 'web_search',
+    description: 'Search the web using DuckDuckGo instant answers API',
+    params: [{ name: 'query', type: 'string', description: 'Search query', required: true }],
+    toolType: 'http' as CustomToolType,
+    httpMethod: 'GET' as const,
+    urlTemplate: 'https://api.duckduckgo.com/?q={{query}}&format=json&no_html=1',
+  },
+};
+
 export default function ToolsManager() {
   const [tools, setTools] = useState<ToolDefinition[]>(() => getAllToolDefinitions());
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -20,10 +39,17 @@ export default function ToolsManager() {
   // ── Add Tool Form State ──────────────────────────────────
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
+  const [toolType, setToolType] = useState<CustomToolType>('template');
   const [newParams, setNewParams] = useState<{ name: string; type: string; description: string; required: boolean }[]>([
     { name: '', type: 'string', description: '', required: true },
   ]);
   const [newResponse, setNewResponse] = useState('');
+  // HTTP tool state
+  const [httpMethod, setHttpMethod] = useState<'GET' | 'POST'>('GET');
+  const [urlTemplate, setUrlTemplate] = useState('');
+  const [bodyTemplate, setBodyTemplate] = useState('');
+  // JS tool state
+  const [jsFunction, setJsFunction] = useState('');
   const [error, setError] = useState('');
 
   const toggleExpand = (name: string) => {
@@ -45,8 +71,24 @@ export default function ToolsManager() {
   const resetForm = () => {
     setNewName('');
     setNewDescription('');
+    setToolType('template');
     setNewParams([{ name: '', type: 'string', description: '', required: true }]);
     setNewResponse('');
+    setHttpMethod('GET');
+    setUrlTemplate('');
+    setBodyTemplate('');
+    setJsFunction('');
+    setError('');
+  };
+
+  const prefillExample = (key: keyof typeof EXAMPLE_TOOLS) => {
+    const ex = EXAMPLE_TOOLS[key];
+    setNewName(ex.name);
+    setNewDescription(ex.description);
+    setToolType(ex.toolType);
+    setNewParams(ex.params.map((p) => ({ ...p, type: p.type || 'string' })));
+    setHttpMethod(ex.httpMethod);
+    setUrlTemplate(ex.urlTemplate);
     setError('');
   };
 
@@ -60,8 +102,7 @@ export default function ToolsManager() {
     if (!newDescription.trim()) { setError('Description is required'); return; }
 
     const validParams = newParams.filter((p) => p.name.trim());
-    if (validParams.length === 0) { setError('At least one parameter is required'); return; }
-    if (!newResponse.trim()) { setError('Response template is required'); return; }
+    if (toolType !== 'javascript' && validParams.length === 0) { setError('At least one parameter is required'); return; }
 
     const parameters: Record<string, { type: string; description?: string }> = {};
     for (const p of validParams) {
@@ -69,7 +110,22 @@ export default function ToolsManager() {
     }
     const required = validParams.filter((p) => p.required).map((p) => p.name.trim());
 
-    registerCustomTool(toolName, newDescription.trim(), parameters, required, newResponse.trim());
+    if (toolType === 'template') {
+      if (!newResponse.trim()) { setError('Response template is required'); return; }
+      registerCustomTool(toolName, newDescription.trim(), parameters, required, newResponse.trim());
+    } else if (toolType === 'http') {
+      if (!urlTemplate.trim()) { setError('URL template is required'); return; }
+      const httpConfig: HttpToolConfig = {
+        method: httpMethod,
+        urlTemplate: urlTemplate.trim(),
+        bodyTemplate: httpMethod === 'POST' && bodyTemplate.trim() ? bodyTemplate.trim() : undefined,
+      };
+      registerHttpTool(toolName, newDescription.trim(), parameters, required, httpConfig);
+    } else if (toolType === 'javascript') {
+      if (!jsFunction.trim()) { setError('JavaScript function body is required'); return; }
+      registerJsTool(toolName, newDescription.trim(), parameters, required, jsFunction.trim());
+    }
+
     setTools(getAllToolDefinitions());
     resetForm();
     setShowAdd(false);
@@ -110,6 +166,53 @@ export default function ToolsManager() {
           {error && (
             <div className="mb-4 px-4 py-2.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-600">
               <i className="fas fa-circle-exclamation mr-2"></i>{error}
+            </div>
+          )}
+
+          {/* Tool Type Tabs */}
+          <div className="flex gap-2 mb-4">
+            {([
+              { type: 'template' as const, label: 'Template', icon: 'fa-file-code' },
+              { type: 'http' as const, label: 'HTTP Request', icon: 'fa-globe' },
+              { type: 'javascript' as const, label: 'JavaScript', icon: 'fa-js' },
+            ]).map(({ type, label, icon }) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setToolType(type)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  toolType === type
+                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                    : 'bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <i className={`fab ${icon} mr-2`}></i>{label}
+              </button>
+            ))}
+          </div>
+
+          {/* Example Tools (HTTP only) */}
+          {toolType === 'http' && (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+              <p className="text-xs font-medium text-amber-700 mb-2">
+                <i className="fas fa-lightbulb mr-1"></i>Quick start with an example:
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => prefillExample('weather_api')}
+                  className="px-3 py-1.5 bg-white border border-amber-200 rounded-lg text-xs font-medium text-amber-700 hover:bg-amber-100 transition-colors"
+                >
+                  <i className="fas fa-cloud-sun mr-1"></i>Real Weather (wttr.in)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => prefillExample('duckduckgo')}
+                  className="px-3 py-1.5 bg-white border border-amber-200 rounded-lg text-xs font-medium text-amber-700 hover:bg-amber-100 transition-colors"
+                >
+                  <i className="fas fa-search mr-1"></i>Web Search (DuckDuckGo)
+                </button>
+              </div>
             </div>
           )}
 
@@ -194,20 +297,90 @@ export default function ToolsManager() {
             </div>
           </div>
 
-          {/* Response Template */}
-          <div className="mb-5">
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Response Template</label>
-            <textarea
-              value={newResponse}
-              onChange={(e) => setNewResponse(e.target.value)}
-              placeholder={'JSON response the tool returns. Use {{paramName}} for dynamic values.\ne.g. {"translation": "Hello in {{language}}", "source": "{{text}}"}'}
-              rows={3}
-              className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 resize-none"
-            />
-            <p className="text-[10px] text-slate-400 mt-1">
-              Use <span className="font-mono font-semibold">{'{{paramName}}'}</span> placeholders to insert parameter values into the response.
-            </p>
-          </div>
+          {/* Tool-Type-Specific Config */}
+          {toolType === 'template' && (
+            <div className="mb-5">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Response Template</label>
+              <textarea
+                value={newResponse}
+                onChange={(e) => setNewResponse(e.target.value)}
+                placeholder={'JSON response the tool returns. Use {{paramName}} for dynamic values.\ne.g. {"translation": "Hello in {{language}}", "source": "{{text}}"}'}
+                rows={3}
+                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 resize-none"
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                Use <span className="font-mono font-semibold">{'{{paramName}}'}</span> placeholders to insert parameter values.
+              </p>
+            </div>
+          )}
+
+          {toolType === 'http' && (
+            <div className="mb-5 space-y-3">
+              <div className="grid grid-cols-[120px_1fr] gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Method</label>
+                  <select
+                    value={httpMethod}
+                    onChange={(e) => setHttpMethod(e.target.value as 'GET' | 'POST')}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">URL Template</label>
+                  <input
+                    type="text"
+                    value={urlTemplate}
+                    onChange={(e) => setUrlTemplate(e.target.value)}
+                    placeholder="https://api.example.com/{{param}}?key=value"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300"
+                  />
+                </div>
+              </div>
+              {httpMethod === 'POST' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Body Template (JSON)</label>
+                  <textarea
+                    value={bodyTemplate}
+                    onChange={(e) => setBodyTemplate(e.target.value)}
+                    placeholder='{"query": "{{query}}", "limit": 10}'
+                    rows={3}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 resize-none"
+                  />
+                </div>
+              )}
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <p className="text-xs text-amber-700">
+                  <i className="fas fa-exclamation-triangle mr-1"></i>
+                  Some APIs may not work from the browser due to CORS restrictions. APIs like wttr.in and DuckDuckGo allow cross-origin requests.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {toolType === 'javascript' && (
+            <div className="mb-5">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Function Body</label>
+              <textarea
+                value={jsFunction}
+                onChange={(e) => setJsFunction(e.target.value)}
+                placeholder={`// Receives (args, context). Must return a string.\n// Example:\nconst result = args.text.toUpperCase();\nreturn JSON.stringify({ result });`}
+                rows={6}
+                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 resize-none"
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                Write a function body that receives <span className="font-mono font-semibold">(args, context)</span> and returns a string.
+              </p>
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl mt-2">
+                <p className="text-xs text-rose-700">
+                  <i className="fas fa-shield-halved mr-1"></i>
+                  JS tools execute arbitrary code in your browser. Only use code you trust.
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-end">
             <button

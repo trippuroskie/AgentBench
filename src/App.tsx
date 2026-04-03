@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import type { ViewState, ModelConfig, TaskDefinition, BenchmarkRun, BenchmarkProgress, AppSettings, LiveRunState, AgentStep, TaskContext, QueueItem } from './types';
+import type { ViewState, ModelConfig, TaskDefinition, BenchmarkRun, BenchmarkProgress, AppSettings, LiveRunState, AgentStep, TaskContext, QueueItem, ModelParams } from './types';
 import { DEFAULT_SETTINGS } from './constants';
 import { initDatabase, saveModel, getModels, getTasks, getRuns, saveRun, saveTask } from './services/database';
 import { OllamaService } from './services/ollama';
+import { OpenRouterService } from './services/openrouter';
 import { runAgent } from './agent/harness';
+import { runWithConcurrency } from './utils/concurrency';
 import { getBuiltinTasks } from './tasks/registry';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -34,11 +36,14 @@ export default function App() {
   const [liveRuns, setLiveRuns] = useState<LiveRunState[]>([]);
   const cancelRef = useRef(false);
   const ollamaRef = useRef(new OllamaService(settings.ollamaBaseUrl));
+  const openrouterRef = useRef(new OpenRouterService(settings.openrouterApiKey));
+  const activeAbortControllers = useRef(new Set<AbortController>());
 
   // ── Persist Settings ──────────────────────────────────────
   useEffect(() => {
     localStorage.setItem('agentbench_settings', JSON.stringify(settings));
     ollamaRef.current = new OllamaService(settings.ollamaBaseUrl);
+    openrouterRef.current.updateApiKey(settings.openrouterApiKey);
   }, [settings]);
 
   // ── Initialize ────────────────────────────────────────────
@@ -109,13 +114,16 @@ export default function App() {
 
   const handleCancelBenchmark = useCallback(() => {
     cancelRef.current = true;
+    for (const ctrl of activeAbortControllers.current) ctrl.abort();
+    activeAbortControllers.current.clear();
     setProgress(null);
     setLiveRuns([]);
   }, []);
 
-  // ── Run Benchmark (with live monitoring) ──────────────────
-  const handleRunBenchmark = useCallback(async (taskIds: string[], modelIds: string[], iterations: number) => {
+  // ── Run Benchmark (with live monitoring + parallel execution) ──
+  const handleRunBenchmark = useCallback(async (taskIds: string[], modelIds: string[], iterations: number, modelParams?: ModelParams) => {
     cancelRef.current = false;
+    activeAbortControllers.current.clear();
     setLiveRuns([]);
 
     const queueItems: QueueItem[] = [];
@@ -128,20 +136,27 @@ export default function App() {
     }
 
     const total = queueItems.length;
+    let completed = 0;
     setProgress({ isRunning: true, current: 0, total, message: 'Starting benchmark...', queue: [...queueItems] });
 
-    for (let i = 0; i < queueItems.length; i++) {
-      if (cancelRef.current) break;
-
-      const { taskId, modelId } = queueItems[i];
+    const executeQueueItem = async (item: QueueItem, index: number) => {
+      const { taskId, modelId } = item;
       const task = tasks.find((t) => t.id === taskId);
       const model = models.find((m) => m.id === modelId);
-      if (!task || !model) continue;
+      if (!task || !model) return;
+
+      // Select provider
+      const llmService = model.provider === 'openrouter'
+        ? openrouterRef.current
+        : ollamaRef.current;
 
       // Update queue statuses
-      queueItems[i].status = 'running';
+      queueItems[index].status = 'running';
       const runId = crypto.randomUUID();
       const runStart = Date.now();
+
+      const abortController = new AbortController();
+      activeAbortControllers.current.add(abortController);
 
       setLiveRuns((prev) => [...prev, {
         runId, modelId, taskId, status: 'running',
@@ -149,13 +164,13 @@ export default function App() {
         startTime: runStart, elapsedMs: 0,
       }]);
 
-      setProgress({
-        isRunning: true, current: i, total,
-        message: `Run ${i + 1} of ${total}`,
+      setProgress((prev) => prev ? {
+        ...prev,
+        message: `Running... (${completed} of ${total} done)`,
         queue: [...queueItems],
         currentModel: model.name,
         currentTask: task.name,
-      });
+      } : null);
 
       const elapsed = setInterval(() => {
         setLiveRuns((prev) => prev.map((r) =>
@@ -167,9 +182,10 @@ export default function App() {
         const result = await runAgent({
           model: modelId,
           task,
-          ollamaService: ollamaRef.current,
-          abortSignal: cancelRef.current ? AbortSignal.abort() : undefined,
+          llmService,
+          abortSignal: abortController.signal,
           modelConfig: { inputPrice: model.inputPrice, outputPrice: model.outputPrice },
+          modelParams,
           judgeConfig: task.scoringMethod === 'llm_judge'
             ? { model: settings.judgeModel, ollamaBaseUrl: settings.ollamaBaseUrl }
             : undefined,
@@ -196,7 +212,8 @@ export default function App() {
         });
 
         clearInterval(elapsed);
-        queueItems[i].status = 'completed';
+        queueItems[index].status = 'completed';
+        activeAbortControllers.current.delete(abortController);
 
         setLiveRuns((prev) => prev.map((r) =>
           r.runId === runId ? { ...r, status: 'completed', elapsedMs: Date.now() - runStart, result } : r
@@ -206,7 +223,8 @@ export default function App() {
         setRuns((prev) => [result, ...prev]);
       } catch (e: any) {
         clearInterval(elapsed);
-        queueItems[i].status = 'failed';
+        queueItems[index].status = 'failed';
+        activeAbortControllers.current.delete(abortController);
         console.error(`Run failed for ${model.name} on ${task.name}:`, e);
 
         const failedRun: BenchmarkRun = {
@@ -222,9 +240,16 @@ export default function App() {
         setRuns((prev) => [failedRun, ...prev]);
       }
 
-      // Update progress with latest queue state
-      setProgress((prev) => prev ? { ...prev, current: i + 1, queue: [...queueItems] } : null);
-    }
+      completed++;
+      setProgress((prev) => prev ? { ...prev, current: completed, queue: [...queueItems] } : null);
+    };
+
+    await runWithConcurrency(
+      queueItems,
+      settings.concurrencyLimit,
+      executeQueueItem,
+      () => cancelRef.current,
+    );
 
     setProgress((prev) => prev ? { ...prev, current: total, message: 'Benchmark complete!', queue: [...queueItems] } : null);
     await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -262,6 +287,8 @@ export default function App() {
             tasks={tasks}
             models={models}
             ollamaConnected={ollamaStatus === 'connected'}
+            openrouterConfigured={!!settings.openrouterApiKey}
+            concurrencyLimit={settings.concurrencyLimit}
             onRunBenchmark={handleRunBenchmark}
           />
         );

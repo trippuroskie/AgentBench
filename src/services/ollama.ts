@@ -1,18 +1,11 @@
-import type { ChatMessage, ToolDefinition, ModelConfig } from '../types';
+import type { ChatMessage, ToolDefinition, ModelConfig, LLMService, LLMChatResponse, LLMServiceOptions } from '../types';
 import { MODEL_COLORS, DEFAULT_OLLAMA_MODELS } from '../constants';
 
-export interface OllamaChatResponse {
-  message: ChatMessage;
-  usage: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  };
-  model: string;
+export interface OllamaChatResponse extends LLMChatResponse {
   totalDurationNs?: number;
 }
 
-export class OllamaService {
+export class OllamaService implements LLMService {
   private baseUrl: string;
 
   constructor(baseUrl = 'http://localhost:11434') {
@@ -103,7 +96,7 @@ export class OllamaService {
     model: string,
     messages: ChatMessage[],
     tools?: ToolDefinition[],
-    options?: { temperature?: number; timeoutMs?: number }
+    options?: LLMServiceOptions,
   ): Promise<OllamaChatResponse> {
     const timeoutMs = options?.timeoutMs ?? 120_000;
     const controller = new AbortController();
@@ -142,8 +135,14 @@ export class OllamaService {
         body.tools = tools;
       }
 
-      if (options?.temperature != null) {
-        body.options = { temperature: options.temperature };
+      const ollamaOpts: Record<string, any> = {};
+      if (options?.temperature != null) ollamaOpts.temperature = options.temperature;
+      if (options?.topP != null) ollamaOpts.top_p = options.topP;
+      if (options?.topK != null) ollamaOpts.top_k = options.topK;
+      if (options?.repeatPenalty != null) ollamaOpts.repeat_penalty = options.repeatPenalty;
+      if (options?.seed != null) ollamaOpts.seed = options.seed;
+      if (Object.keys(ollamaOpts).length > 0) {
+        body.options = ollamaOpts;
       }
 
       // Use Ollama's native /api/chat endpoint (more reliable than OpenAI compat layer)

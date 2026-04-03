@@ -3,6 +3,7 @@ import type { BenchmarkRun, ModelConfig, TaskDefinition, AgentStep } from '../ty
 import { METRIC_CONFIGS } from '../constants';
 import { getRunSteps } from '../services/database';
 import AgentTraceView from './AgentTraceView';
+import { computeStats, groupRunsByModelTask, getMetricValues } from '../utils/stats';
 
 interface ResultsViewProps {
   runs: BenchmarkRun[];
@@ -107,6 +108,64 @@ export default function ResultsView({ runs, models, tasks }: ResultsViewProps) {
           })}
         </select>
       </div>
+
+      {/* Statistical Summary */}
+      {(() => {
+        const groups = groupRunsByModelTask(filtered);
+        const multiRunGroups = [...groups.entries()].filter(([, runs]) => runs.length > 1);
+        if (multiRunGroups.length === 0) return null;
+
+        return (
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
+            <h3 className="text-sm font-bold text-slate-600 mb-4">
+              <i className="fas fa-chart-bar text-indigo-500 mr-2"></i>
+              Statistical Summary
+              <span className="text-[10px] text-slate-400 font-normal ml-2">Groups with 2+ runs</span>
+            </h3>
+            <div className="space-y-4">
+              {multiRunGroups.map(([key, groupRuns]) => {
+                const [modelId, taskId] = key.split('::');
+                const model = models.find((m) => m.id === modelId);
+                const task = tasks.find((t) => t.id === taskId);
+                const metricKeys = ['taskSuccess', 'wallClockMs', 'tokensPerSecond', 'toolCallsCount'] as const;
+
+                return (
+                  <div key={key} className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className={`px-2 py-0.5 rounded-lg text-xs font-bold ${model?.color || 'bg-slate-100 text-slate-600'}`}>
+                        {model?.name || modelId}
+                      </span>
+                      <span className="text-xs text-slate-400">on</span>
+                      <span className="text-xs font-medium text-slate-600">{task?.name || taskId}</span>
+                      <span className="text-[10px] text-slate-400 ml-auto">n={groupRuns.length}</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {metricKeys.map((mk) => {
+                        const config = METRIC_CONFIGS[mk];
+                        const vals = getMetricValues(groupRuns, mk);
+                        if (vals.length < 2) return null;
+                        const stats = computeStats(vals);
+                        return (
+                          <div key={mk} className="text-center">
+                            <p className="text-[10px] text-slate-400 uppercase font-bold">{config.label}</p>
+                            <p className="text-sm font-bold text-slate-700">{config.format(stats.mean)}</p>
+                            <p className="text-[10px] text-slate-400">
+                              +/-{config.format(stats.stdDev)} | [{config.format(stats.min)}, {config.format(stats.max)}]
+                            </p>
+                            <p className="text-[10px] text-indigo-500 font-medium">
+                              95% CI: [{config.format(stats.ci95Low)}, {config.format(stats.ci95High)}]
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {sorted.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-2xl border border-slate-200">

@@ -175,4 +175,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultMaxSteps: DEFAULT_MAX_STEPS,
   judgeProvider: 'ollama',
   judgeModel: 'llama3.1',
+  concurrencyLimit: CONCURRENCY_LIMIT,
 };
