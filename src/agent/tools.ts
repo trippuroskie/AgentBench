@@ -51,6 +51,34 @@ export function getAllToolNames(): string[] {
   return Object.keys(REGISTRY);
 }
 
+/** Get all registered tools (definitions only, no executors) for UI display */
+export function getAllToolDefinitions(): ToolDefinition[] {
+  return Object.values(REGISTRY).map((t) => t.definition);
+}
+
+/** Check if a tool name exists */
+export function hasTool(name: string): boolean {
+  return name in REGISTRY;
+}
+
+/** Register a custom tool from the UI (static response) */
+export function registerCustomTool(
+  name: string,
+  description: string,
+  parameters: Record<string, { type: string; description?: string }>,
+  required: string[],
+  responseTemplate: string,
+): void {
+  register(name, description, parameters, required, (args) => {
+    // Replace {{paramName}} placeholders in the response template
+    let response = responseTemplate;
+    for (const [key, val] of Object.entries(args)) {
+      response = response.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), String(val));
+    }
+    return response;
+  });
+}
+
 // ── Calculator ────────────────────────────────────────────────
 
 register(

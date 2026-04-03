@@ -8,6 +8,7 @@ export type ViewState =
   | 'compare'
   | 'tasks'
   | 'models'
+  | 'tools'
   | 'settings';
 
 // ── Model System ──────────────────────────────────────────────
@@ -97,7 +98,8 @@ export interface TaskDefinition {
   maxSteps: number;
   expectedAnswer?: string;
   scoringMethod: ScoringMethod;
-  scoringFn?: (answer: string, context?: TaskContext) => number;
+  scoringFn?: (answer: string, context?: TaskContext, steps?: AgentStep[]) => number;
+  optimalToolCalls?: number; // minimum tool calls needed for a perfect solution
   configJson?: any;
   builtin?: boolean;
 }
@@ -150,6 +152,7 @@ export interface RunMetrics {
   wallClockMs: number;
   taskSuccess: number;          // 0-1
   costEstimateUsd: number;
+  toolEfficiency?: number;       // optimal/actual tool calls (0-1)
   trajectoryEfficiency?: number; // optimal/actual (0-1)
   judgeScore?: number;           // 1-5
   judgeReasoning?: string;

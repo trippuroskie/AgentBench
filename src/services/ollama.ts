@@ -51,6 +51,54 @@ export class OllamaService {
     });
   }
 
+  /**
+   * Pull a model from the Ollama registry. Streams progress via callback.
+   * Returns true if successful.
+   */
+  async pullModel(
+    name: string,
+    onProgress?: (status: string, completed?: number, total?: number) => void,
+  ): Promise<boolean> {
+    const res = await fetch(`${this.baseUrl}/api/pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, stream: true }),
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`Pull failed: ${res.status} ${errorText}`);
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error('No response body');
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const data = JSON.parse(line);
+          if (data.error) throw new Error(data.error);
+          onProgress?.(data.status || '', data.completed, data.total);
+        } catch (e: any) {
+          if (e.message && !e.message.includes('JSON')) throw e;
+        }
+      }
+    }
+
+    return true;
+  }
+
   async chatCompletion(
     model: string,
     messages: ChatMessage[],
@@ -62,9 +110,31 @@ export class OllamaService {
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
+      // Transform messages to Ollama native format:
+      // - content: null → content: ""
+      // - tool_calls: arguments must be object, not JSON string; strip id/type
+      // - tool messages: strip tool_call_id
+      const nativeMessages = messages.map((m) => {
+        const msg: any = { role: m.role, content: m.content ?? '' };
+
+        if (m.tool_calls?.length) {
+          msg.tool_calls = m.tool_calls.map((tc) => ({
+            function: {
+              name: tc.function.name,
+              arguments: typeof tc.function.arguments === 'string'
+                ? safeJsonParse(tc.function.arguments)
+                : tc.function.arguments,
+            },
+          }));
+        }
+
+        // Don't send tool_call_id to native API
+        return msg;
+      });
+
       const body: any = {
         model,
-        messages,
+        messages: nativeMessages,
         stream: false,
       };
 
@@ -76,7 +146,8 @@ export class OllamaService {
         body.options = { temperature: options.temperature };
       }
 
-      const res = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+      // Use Ollama's native /api/chat endpoint (more reliable than OpenAI compat layer)
+      const res = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -89,19 +160,20 @@ export class OllamaService {
       }
 
       const data = await res.json();
-      const choice = data.choices?.[0];
 
-      if (!choice) {
-        throw new Error('No response choice from Ollama');
+      // Native Ollama /api/chat response format
+      const msg = data.message;
+      if (!msg) {
+        throw new Error('No message in Ollama response');
       }
 
       const message: ChatMessage = {
         role: 'assistant',
-        content: choice.message?.content ?? null,
+        content: msg.content ?? null,
       };
 
-      if (choice.message?.tool_calls?.length) {
-        message.tool_calls = choice.message.tool_calls.map((tc: any) => ({
+      if (msg.tool_calls?.length) {
+        message.tool_calls = msg.tool_calls.map((tc: any) => ({
           id: tc.id || crypto.randomUUID(),
           type: 'function',
           function: {
@@ -113,14 +185,19 @@ export class OllamaService {
         }));
       }
 
+      // Ollama native API returns tokens differently
+      const promptTokens = data.prompt_eval_count ?? 0;
+      const completionTokens = data.eval_count ?? 0;
+
       return {
         message,
         usage: {
-          prompt_tokens: data.usage?.prompt_tokens ?? 0,
-          completion_tokens: data.usage?.completion_tokens ?? 0,
-          total_tokens: data.usage?.total_tokens ?? 0,
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+          total_tokens: promptTokens + completionTokens,
         },
         model: data.model || model,
+        totalDurationNs: data.total_duration,
       };
     } catch (error: any) {
       if (error.name === 'AbortError') {
@@ -137,4 +214,12 @@ function parseParamSize(size?: string): number | undefined {
   if (!size) return undefined;
   const match = size.match(/([\d.]+)\s*[Bb]/);
   return match ? parseFloat(match[1]) : undefined;
+}
+
+function safeJsonParse(str: string): Record<string, any> {
+  try {
+    return JSON.parse(str);
+  } catch {
+    return { raw: str };
+  }
 }

@@ -210,7 +210,7 @@ export default function Compare({ runs, models, tasks }: CompareProps) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {(['taskSuccess', 'tokensPerSecond', 'wallClockMs', 'tokensTotal', 'toolCallsCount', 'trajectoryEfficiency'] as const).map((key) => {
+                    {(['taskSuccess', 'tokensPerSecond', 'wallClockMs', 'tokensTotal', 'toolCallsCount', 'toolEfficiency', 'trajectoryEfficiency'] as const).map((key) => {
                       const config = METRIC_CONFIGS[key];
                       if (!config) return null;
                       const values = comparedRuns.map((r) => (r.metrics as any)?.[key] ?? 0);

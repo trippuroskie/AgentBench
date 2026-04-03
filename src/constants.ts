@@ -126,6 +126,13 @@ export const METRIC_CONFIGS: Record<string, MetricConfig> = {
     higherBetter: false,
     format: (v) => `${Math.round(v)}`,
   },
+  toolEfficiency: {
+    label: 'Tool Efficiency',
+    key: 'toolEfficiency',
+    higherBetter: true,
+    format: (v) => `${Math.round(v * 100)}%`,
+    unit: '%',
+  },
   trajectoryEfficiency: {
     label: 'Trajectory',
     key: 'trajectoryEfficiency',

@@ -13,6 +13,7 @@ const menuItems: { id: ViewState; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'fa-chart-pie' },
   { id: 'tasks', label: 'Tasks', icon: 'fa-list-check' },
   { id: 'models', label: 'Models', icon: 'fa-microchip' },
+  { id: 'tools', label: 'Tools', icon: 'fa-wrench' },
   { id: 'benchmark', label: 'Run Benchmark', icon: 'fa-play' },
   { id: 'results', label: 'Results', icon: 'fa-table' },
   { id: 'compare', label: 'Compare', icon: 'fa-code-compare' },

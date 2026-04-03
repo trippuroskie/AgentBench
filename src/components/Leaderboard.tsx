@@ -10,13 +10,14 @@ interface LeaderboardProps {
   tasks: TaskDefinition[];
 }
 
-type SortMetric = 'taskSuccess' | 'tokensPerSecond' | 'wallClockMs' | 'toolCallsCount' | 'trajectoryEfficiency' | 'costEstimateUsd';
+type SortMetric = 'taskSuccess' | 'tokensPerSecond' | 'wallClockMs' | 'toolCallsCount' | 'toolEfficiency' | 'trajectoryEfficiency' | 'costEstimateUsd';
 
 const SORT_OPTIONS: { key: SortMetric; label: string }[] = [
   { key: 'taskSuccess', label: 'Success Rate' },
   { key: 'tokensPerSecond', label: 'Tokens/sec' },
   { key: 'wallClockMs', label: 'Duration' },
   { key: 'toolCallsCount', label: 'Tool Calls' },
+  { key: 'toolEfficiency', label: 'Tool Efficiency' },
   { key: 'trajectoryEfficiency', label: 'Trajectory' },
 ];
 
@@ -45,7 +46,7 @@ export default function Leaderboard({ runs, models, tasks }: LeaderboardProps) {
         byModel.set(run.modelId, entry);
       }
 
-      for (const key of ['taskSuccess', 'tokensPerSecond', 'wallClockMs', 'toolCallsCount', 'trajectoryEfficiency', 'costEstimateUsd'] as const) {
+      for (const key of ['taskSuccess', 'tokensPerSecond', 'wallClockMs', 'toolCallsCount', 'toolEfficiency', 'trajectoryEfficiency', 'costEstimateUsd'] as const) {
         const val = m[key];
         if (val != null) {
           entry.total[key] = (entry.total[key] || 0) + val;

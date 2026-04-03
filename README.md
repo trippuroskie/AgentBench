@@ -7,10 +7,15 @@ Test how well different LLMs handle multi-step agent tasks — calling tools, na
 ## Features
 
 - **Agent Harness** — TypeScript tool-calling loop: call model, parse tool_calls, execute mock tools, feed results back, repeat
-- **5 Mock Tools** — Calculator, search, weather, grid move, grid look
+- **5 Built-in Tools** — Calculator, search, weather, grid move, grid look
+- **Custom Tools** — Create your own tools from the UI with configurable parameters and response templates
 - **7 Built-in Tasks** — Multi-step math, fact lookup, weather comparison, unit conversion, grid navigation (easy/medium)
+- **Custom Tasks** — Create deterministic or open-ended tasks from the UI with configurable prompts, tools, scoring, and expected answers
+- **Milestone-Based Scoring** — Partial credit scoring that checks tool usage, intermediate results, and answer proximity (not just binary pass/fail)
+- **Tool Efficiency Metric** — Measures how efficiently agents use tools (optimal vs actual tool calls)
 - **Live Benchmark Monitor** — Full-screen dark-themed dashboard with real-time step feed, token counters, queue progress, ETA, and live grid visualization
-- **Scoring** — Deterministic (exact match, function check), trajectory efficiency (grid nav), LLM-as-judge (optional)
+- **Model Pulling** — Pull models directly from the Ollama registry via the UI with real-time progress
+- **Scoring Methods** — Deterministic (exact match, contains check), trajectory efficiency (grid nav), LLM-as-judge (optional)
 - **Dashboard & Leaderboard** — Charts, model rankings, sortable results with filters
 - **Side-by-Side Compare** — Radar chart + metrics table for up to 4 models on the same task
 - **Grid Navigation Visualizer** — Animated playback of agent pathfinding with optimal path overlay
@@ -25,7 +30,7 @@ Test how well different LLMs handle multi-step agent tasks — calling tools, na
 - Tailwind CSS (CDN) + Font Awesome
 - Recharts for visualization
 - sql.js for in-browser SQLite
-- Ollama for local model inference (OpenAI-compatible API)
+- Ollama for local model inference (native `/api/chat` endpoint)
 
 ## Getting Started
 
@@ -66,10 +71,12 @@ Open http://localhost:5173
 ### 4. Run your first benchmark
 
 1. Check the sidebar — Ollama status should show **Connected** (green dot)
-2. Go to **Models** — your pulled models appear automatically
-3. Go to **Run Benchmark** — select tasks and models, hit **Launch**
-4. Watch the live monitor as agents execute
-5. View results in **Results**, rankings in **Leaderboard**, comparisons in **Compare**
+2. Go to **Models** — your pulled models appear automatically (or use **Pull Model** to download new ones)
+3. Go to **Tools** — view built-in tools or create custom ones for your tasks
+4. Go to **Tasks** — view built-in tasks or create custom ones with your tools
+5. Go to **Run Benchmark** — select tasks and models, hit **Launch**
+6. Watch the live monitor as agents execute
+7. View results in **Results**, rankings in **Leaderboard**, comparisons in **Compare**
 
 ## Optional Integrations
 

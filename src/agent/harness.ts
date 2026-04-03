@@ -176,6 +176,7 @@ export async function runAgent(options: AgentRunOptions): Promise<BenchmarkRun> 
     costEstimateUsd: modelConfig
       ? (totalInputTokens * modelConfig.inputPrice) + (totalOutputTokens * modelConfig.outputPrice)
       : 0,
+    toolEfficiency: scoring.toolEfficiency,
     trajectoryEfficiency: scoring.trajectoryEfficiency,
     judgeScore: scoring.judgeScore,
     judgeReasoning: scoring.judgeReasoning,

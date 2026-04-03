@@ -13,6 +13,7 @@ import Leaderboard from './components/Leaderboard';
 import Compare from './components/Compare';
 import ModelManager from './components/ModelManager';
 import TaskManager from './components/TaskManager';
+import ToolsManager from './components/ToolsManager';
 import Settings from './components/Settings';
 import LiveMonitor from './components/LiveMonitor';
 
@@ -251,8 +252,10 @@ export default function App() {
         return <Dashboard runs={runs} models={models} tasks={tasks} onNavigate={(v) => setView(v as ViewState)} />;
       case 'tasks':
         return <TaskManager tasks={tasks} onAddTask={handleAddTask} />;
+      case 'tools':
+        return <ToolsManager />;
       case 'models':
-        return <ModelManager models={models} ollamaStatus={ollamaStatus} onRefresh={refreshModels} onAddModel={(m) => { saveModel(m); setModels(prev => { const i = prev.findIndex(x => x.id === m.id); if (i >= 0) { const next = [...prev]; next[i] = m; return next; } return [...prev, m]; }); }} />;
+        return <ModelManager models={models} ollamaStatus={ollamaStatus} onRefresh={refreshModels} ollamaBaseUrl={settings.ollamaBaseUrl} onAddModel={(m) => { saveModel(m); setModels(prev => { const i = prev.findIndex(x => x.id === m.id); if (i >= 0) { const next = [...prev]; next[i] = m; return next; } return [...prev, m]; }); }} />;
       case 'benchmark':
         return (
           <BenchmarkRunner

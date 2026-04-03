@@ -1,19 +1,29 @@
 import React, { useState } from 'react';
 import type { ModelConfig } from '../types';
 import { MODEL_COLORS } from '../constants';
+import { OllamaService } from '../services/ollama';
 
 interface ModelManagerProps {
   models: ModelConfig[];
   ollamaStatus: 'connected' | 'disconnected' | 'checking';
   onRefresh: () => Promise<void>;
   onAddModel: (model: ModelConfig) => void;
+  ollamaBaseUrl?: string;
 }
 
-export default function ModelManager({ models, ollamaStatus, onRefresh, onAddModel }: ModelManagerProps) {
+export default function ModelManager({ models, ollamaStatus, onRefresh, onAddModel, ollamaBaseUrl }: ModelManagerProps) {
   const [refreshing, setRefreshing] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [newId, setNewId] = useState('');
   const [newName, setNewName] = useState('');
+
+  // Pull state
+  const [showPull, setShowPull] = useState(false);
+  const [pullModelName, setPullModelName] = useState('');
+  const [pulling, setPulling] = useState(false);
+  const [pullStatus, setPullStatus] = useState('');
+  const [pullProgress, setPullProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [pullError, setPullError] = useState('');
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -39,6 +49,43 @@ export default function ModelManager({ models, ollamaStatus, onRefresh, onAddMod
     setShowAdd(false);
   };
 
+  const handlePull = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pullModelName.trim() || pulling) return;
+
+    const modelName = pullModelName.trim();
+    setPulling(true);
+    setPullError('');
+    setPullStatus('Starting pull...');
+    setPullProgress(null);
+
+    try {
+      const ollama = new OllamaService(ollamaBaseUrl);
+      await ollama.pullModel(modelName, (status, completed, total) => {
+        setPullStatus(status);
+        if (completed != null && total != null && total > 0) {
+          setPullProgress({ completed, total });
+        }
+      });
+
+      setPullStatus('Pull complete! Refreshing models...');
+      await onRefresh();
+      setPullModelName('');
+      setPullStatus('');
+      setPullProgress(null);
+      setShowPull(false);
+    } catch (err: any) {
+      setPullError(err.message || 'Pull failed');
+      setPullStatus('');
+    } finally {
+      setPulling(false);
+    }
+  };
+
+  const pullPercent = pullProgress && pullProgress.total > 0
+    ? Math.round((pullProgress.completed / pullProgress.total) * 100)
+    : null;
+
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-8">
@@ -53,13 +100,26 @@ export default function ModelManager({ models, ollamaStatus, onRefresh, onAddMod
             className="px-4 py-2 rounded-xl bg-indigo-50 text-indigo-600 text-sm font-medium hover:bg-indigo-100 transition-colors disabled:opacity-50"
           >
             <i className={`fas fa-sync ${refreshing ? 'animate-spin' : ''} mr-2`}></i>
-            Refresh from Ollama
+            Refresh
           </button>
           <button
-            onClick={() => setShowAdd(!showAdd)}
-            className="px-4 py-2 rounded-xl bg-violet-50 text-violet-600 text-sm font-medium hover:bg-violet-100 transition-colors"
+            onClick={() => { setShowPull((p) => !p); setShowAdd(false); setPullError(''); }}
+            disabled={ollamaStatus !== 'connected'}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${
+              showPull ? 'bg-slate-200 text-slate-600' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+            }`}
           >
-            <i className="fas fa-plus mr-2"></i>Add Custom
+            <i className={`fas ${showPull ? 'fa-times' : 'fa-download'} mr-2`}></i>
+            {showPull ? 'Cancel' : 'Pull Model'}
+          </button>
+          <button
+            onClick={() => { setShowAdd(!showAdd); setShowPull(false); }}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+              showAdd ? 'bg-slate-200 text-slate-600' : 'bg-violet-50 text-violet-600 hover:bg-violet-100'
+            }`}
+          >
+            <i className={`fas ${showAdd ? 'fa-times' : 'fa-plus'} mr-2`}></i>
+            {showAdd ? 'Cancel' : 'Add Custom'}
           </button>
         </div>
       </div>
@@ -73,9 +133,74 @@ export default function ModelManager({ models, ollamaStatus, onRefresh, onAddMod
         </div>
       )}
 
+      {/* Pull Model Form */}
+      {showPull && (
+        <form onSubmit={handlePull} className="bg-white rounded-2xl border border-emerald-200 shadow-lg shadow-emerald-100/50 p-6 mb-6">
+          <h3 className="text-sm font-bold text-slate-600 mb-4">
+            <i className="fas fa-download text-emerald-500 mr-2"></i>
+            Pull Model from Ollama Registry
+          </h3>
+
+          {pullError && (
+            <div className="mb-4 px-4 py-2.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-600">
+              <i className="fas fa-circle-exclamation mr-2"></i>{pullError}
+            </div>
+          )}
+
+          <div className="flex gap-3 mb-3">
+            <input
+              type="text"
+              value={pullModelName}
+              onChange={(e) => setPullModelName(e.target.value)}
+              placeholder="e.g. llama3.2, qwen3:4b, gemma4:latest"
+              disabled={pulling}
+              className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-300 disabled:opacity-50"
+            />
+            <button
+              type="submit"
+              disabled={pulling || !pullModelName.trim()}
+              className="px-5 py-2.5 bg-emerald-500 text-white rounded-xl text-sm font-semibold hover:bg-emerald-600 transition-colors disabled:opacity-50 shadow-lg shadow-emerald-500/20"
+            >
+              {pulling ? (
+                <><i className="fas fa-spinner animate-spin mr-2"></i>Pulling...</>
+              ) : (
+                <><i className="fas fa-download mr-2"></i>Pull</>
+              )}
+            </button>
+          </div>
+
+          {/* Progress Bar */}
+          {pulling && (
+            <div className="space-y-2">
+              {pullPercent != null && (
+                <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                  <div
+                    className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                    style={{ width: `${pullPercent}%` }}
+                  />
+                </div>
+              )}
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>{pullStatus}</span>
+                {pullPercent != null && <span className="font-semibold">{pullPercent}%</span>}
+              </div>
+            </div>
+          )}
+
+          <p className="text-[10px] text-slate-400 mt-2">
+            Browse available models at <span className="font-semibold">ollama.com/library</span>. The model will be downloaded to your local Ollama instance.
+          </p>
+        </form>
+      )}
+
+      {/* Add Custom Model Form */}
       {showAdd && (
         <form onSubmit={handleAdd} className="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
-          <h3 className="text-sm font-bold text-slate-600 mb-4">Add Custom Model</h3>
+          <h3 className="text-sm font-bold text-slate-600 mb-4">
+            <i className="fas fa-plus-circle text-violet-500 mr-2"></i>
+            Add Custom Model
+          </h3>
+          <p className="text-xs text-slate-400 mb-4">Add a model that's already pulled locally but wasn't auto-detected.</p>
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
               <label className="text-xs font-medium text-slate-500 block mb-1">Model ID (Ollama name)</label>
@@ -84,7 +209,7 @@ export default function ModelManager({ models, ollamaStatus, onRefresh, onAddMod
                 value={newId}
                 onChange={(e) => setNewId(e.target.value)}
                 placeholder="e.g. gemma4:latest"
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-mono"
               />
             </div>
             <div>

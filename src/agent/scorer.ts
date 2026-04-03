@@ -21,6 +21,59 @@ export function scoreNumericMatch(actual: string, expected: string, tolerance: n
   return Math.abs(actualNum - expectedNum) <= tolerance ? 1 : 0;
 }
 
+// ── Partial Credit Helpers ────────────────────────────────────
+
+/** Graduated numeric score: 1.0 if exact, decays toward 0 as distance grows */
+export function scoreNumericProximity(actual: number, expected: number, maxDistance: number): number {
+  if (isNaN(actual) || isNaN(expected)) return 0;
+  const distance = Math.abs(actual - expected);
+  if (distance === 0) return 1;
+  if (distance >= maxDistance) return 0;
+  return Math.max(0, 1 - distance / maxDistance);
+}
+
+/** Check what fraction of required tools the agent actually called */
+export function scoreToolUsage(steps: AgentStep[], requiredTools: string[]): number {
+  const calledTools = new Set(
+    steps
+      .filter((s) => s.role === 'assistant' && s.toolCall)
+      .map((s) => s.toolCall!.function.name)
+  );
+  if (requiredTools.length === 0) return 1;
+  const found = requiredTools.filter((t) => calledTools.has(t)).length;
+  return found / requiredTools.length;
+}
+
+/** Score tool efficiency: optimal / actual (capped at 1) */
+export function scoreToolEfficiency(steps: AgentStep[], optimalCalls: number): number {
+  if (optimalCalls <= 0) return 1;
+  const actualCalls = steps.filter((s) => s.role === 'assistant' && s.toolCall).length;
+  if (actualCalls === 0) return 0;
+  return Math.min(1, optimalCalls / actualCalls);
+}
+
+/** Extract a number from the agent's answer text */
+export function extractNumber(answer: string): number {
+  const num = parseFloat(answer.replace(/[^0-9.\-]/g, ''));
+  return num;
+}
+
+/** Check if any tool call result contains a substring */
+export function toolResultContains(steps: AgentStep[], substring: string): boolean {
+  return steps.some(
+    (s) => s.role === 'tool' && s.toolResult && s.toolResult.toLowerCase().includes(substring.toLowerCase())
+  );
+}
+
+/** Check if a specific tool was called with args containing a substring */
+export function toolCalledWith(steps: AgentStep[], toolName: string, argSubstring: string): boolean {
+  return steps.some(
+    (s) => s.role === 'assistant' && s.toolCall &&
+      s.toolCall.function.name === toolName &&
+      s.toolCall.function.arguments.toLowerCase().includes(argSubstring.toLowerCase())
+  );
+}
+
 // ── Trajectory Scoring ────────────────────────────────────────
 
 export function scoreTrajectory(actualSteps: number, optimalSteps: number, reachedGoal: boolean): number {
@@ -112,15 +165,21 @@ export async function scoreRun(
   steps: AgentStep[],
   context: TaskContext,
   judgeConfig?: { model: string; ollamaBaseUrl: string }
-): Promise<{ taskSuccess: number; trajectoryEfficiency?: number; judgeScore?: number; judgeReasoning?: string }> {
+): Promise<{ taskSuccess: number; toolEfficiency?: number; trajectoryEfficiency?: number; judgeScore?: number; judgeReasoning?: string }> {
   let taskSuccess = 0;
+  let toolEfficiency: number | undefined;
   let trajectoryEfficiency: number | undefined;
   let judgeScore: number | undefined;
   let judgeReasoning: string | undefined;
 
-  // Custom scoring function
+  // Tool efficiency (universal for all tasks with tools)
+  if (task.optimalToolCalls && task.optimalToolCalls > 0) {
+    toolEfficiency = scoreToolEfficiency(steps, task.optimalToolCalls);
+  }
+
+  // Custom scoring function (now receives steps for milestone-based scoring)
   if (task.scoringFn) {
-    taskSuccess = task.scoringFn(finalAnswer, context);
+    taskSuccess = task.scoringFn(finalAnswer, context, steps);
   }
   // Deterministic scoring
   else if (task.scoringMethod === 'exact_match' && task.expectedAnswer) {
@@ -151,5 +210,5 @@ export async function scoreRun(
     taskSuccess = (judgeScore - 1) / 4; // normalize 1-5 to 0-1
   }
 
-  return { taskSuccess, trajectoryEfficiency, judgeScore, judgeReasoning };
+  return { taskSuccess, toolEfficiency, trajectoryEfficiency, judgeScore, judgeReasoning };
 }
